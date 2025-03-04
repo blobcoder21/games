@@ -1,3 +1,28 @@
 #title {
-    font-family: Ubuntu, Helvetica, Times;
+    font-family: 'Ubuntu', Arial, sans-serif;
+}
+
+button {
+    font-family: Arial, sans-serif;
+    background-color: #4CAF50; /* Green */
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #45a049;
+}
+
+
+#hi {
+    font-family: "Comic Sans MS", "Comic Sans", cursive;
+    background: #0000FF;
+    background: linear-gradient(to bottom left, #0000FF 0%, #FF0000 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-decoration: underline;
 }
