@@ -1,6 +1,5 @@
-// List of game HTML files (replace these with the actual file names)
 const gameFiles = [
-    "EaglercraftX1.8_u50.html"
+    'eagler.html'
 ];
 
 // Get the container where the buttons will go
