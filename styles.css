@@ -26,7 +26,10 @@ button:hover {
     display: flex;
     gap: 10px;
 }
-
+#eagler a {
+    font-family: Arial, sans-serif;
+    font-size: 10px;
+}
 #hi {
     font-family: "Comic Sans MS", "Comic Sans", cursive;
     background: #0000FF;
