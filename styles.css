@@ -1,5 +1,10 @@
-#title {
+.title {
     font-family: 'Ubuntu', Arial, sans-serif;
+    background: #00ff00;
+    background: linear-gradient(to bottom left, #00FF00 0%, #00FFFF 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-decoration: underline;
 }
 
 button {
@@ -17,6 +22,10 @@ button:hover {
     background-color: #45a049;
 }
 
+#eagler {
+    display: flex;
+    gap: 10px;
+}
 
 #hi {
     font-family: "Comic Sans MS", "Comic Sans", cursive;
