@@ -31,6 +31,31 @@ button:hover {
     font-family: Arial, sans-serif;
     font-size: 10px;
 }
+
+#eagler-legacy {
+    display: flex;
+    gap: 10px;
+}
+#eagler-legacy a {
+    font-family: Arial, sans-serif;
+    font-size: 10px;
+}
+
+#eagler-legacy button {
+    font-family: Arial, sans-serif;
+    background-color: #af4c4c; /* Green */
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+#eagler-legacy button:hover {
+    background-color: #a04545;
+}
+
 #hi {
     font-family: "Comic Sans MS", "Comic Sans", cursive;
     background: #0000FF;
