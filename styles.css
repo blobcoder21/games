@@ -59,7 +59,7 @@ button a {
 
 #eagler-legacy button {
     font-family: Arial, sans-serif;
-    background-color: #af4c4c; /* Green */
+    background-color: #5ec825; /* Green */
     color: white;
     padding: 10px 20px;
     border: none;
@@ -69,7 +69,31 @@ button a {
 }
 
 #eagler-legacy button:hover {
-    background-color: #a04545;
+    background-color: #63a045;
+}
+
+.other-games{
+    display: flex;
+    gap: 10px;
+}
+.other-games a {
+    font-family: Arial, sans-serif;
+    font-size: 10px;
+}
+
+.other-games button {
+    font-family: Arial, sans-serif;
+    background-color: #2943c7; /* Green */
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.other-games button:hover {
+    background-color: #203498;
 }
 
 #hi {
@@ -79,21 +103,4 @@ button a {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     text-decoration: underline;
-}
-
-.other-games {
-    font-family: Arial, sans-serif;
-    background-color: #4CAF50; /* Green */
-    color: white;
-    padding: 10px 20px;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: background-color 0.3s;
-    display: flex;
-    gap: 10px;
-}
-
-.other-games button:hover {
-    background-color: #45a049;
 }
