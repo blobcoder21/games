@@ -8,7 +8,7 @@
     text-decoration-color: #45a049 ;
 }
 
-button {
+#eagler {
     font-family: Arial, sans-serif;
     background-color: #4CAF50; /* Green */
     color: white;
@@ -19,7 +19,7 @@ button {
     transition: background-color 0.3s;
 }
 
-button:hover {
+#eagler button:hover {
     background-color: #45a049;
 }
 
@@ -63,4 +63,19 @@ button:hover {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     text-decoration: underline;
+}
+
+.other-games {
+    font-family: Arial, sans-serif;
+    background-color: #4CAF50; /* Green */
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.other-games button:hover {
+    background-color: #45a049;
 }
