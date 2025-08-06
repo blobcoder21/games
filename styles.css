@@ -25,25 +25,27 @@ button a {
 }
 
 #eagler {
+    display: flex;
+    gap: 10px;
+}
+#eagler a {
     font-family: Arial, sans-serif;
-    background-color: #4CAF50; /* Green */
+    font-size: 10px;
+}
+
+#eagler button {
+    font-family: Arial, sans-serif;
+    background-color: #5dc729; /* Green */
     color: white;
     padding: 10px 20px;
     border: none;
     border-radius: 5px;
     cursor: pointer;
     transition: background-color 0.3s;
-    display: flex;
-    gap: 10px;
 }
 
 #eagler button:hover {
-    background-color: #45a049;
-}
-
-#eagler a {
-    font-family: Arial, sans-serif;
-    font-size: 10px;
+    background-color: #429820;
 }
 
 #eagler-legacy {
