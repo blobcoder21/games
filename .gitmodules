@@ -1,0 +1,6 @@
+[submodule "clicker-game"]
+	path = clicker-game
+	url = https://github.com/blobcoder21/clicker-game.git
+[submodule "games/clicker-game"]
+	path = games/clicker-game
+	url = https://github.com/blobcoder21/clicker-game.git
