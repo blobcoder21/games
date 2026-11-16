@@ -463,6 +463,7 @@ CookiStocker.ensureReportTimer = function () {
 };
 
 CookiStocker.ensureAchievements = function () {
+  if (typeof CCSE === "undefined" || !CCSE) return; // CCSE not ready yet
   if (
     Game.Achievements["Plasmic assets"] &&
     Game.Achievements["Bose-Einstein Condensed Assets"]
@@ -485,41 +486,49 @@ CookiStocker.ensureAchievements = function () {
 
 CookiStocker.ReplaceGameMenu = function () {
   Game.customOptionsMenu.push(function () {
-    // Build a real node from the HTML string
-    const content = document.createElement("div");
-    content.innerHTML = CookiStocker.getMenuString();
+    try {
+      // Build a real node from the HTML string
+      const content = document.createElement("div");
+      content.innerHTML = CookiStocker.getMenuString();
 
-    // CCSE expects a Node here, not a string
-    CCSE.AppendCollapsibleOptionsMenu(CookiStocker.name, content);
+      // CCSE expects a Node here, not a string
+      CCSE.AppendCollapsibleOptionsMenu(CookiStocker.name, content);
+    } catch (e) {
+      console.error("[CookiStocker] options menu failed:", e);
+    }
   });
 
   Game.customStatsMenu.push(function () {
-    CCSE.AppendStatsVersionNumber(CookiStocker.name, CookiStocker.version);
-    if (!CookiStocker.Bank || !CookiStocker.Bank.goodsById) return;
+    try {
+      CCSE.AppendStatsVersionNumber(CookiStocker.name, CookiStocker.version);
+      if (!CookiStocker.Bank || !CookiStocker.Bank.goodsById) return;
 
-    // example rollup; adjust to taste
-    var p = CookiStocker.Bank.profit;
-    var held = CookiStocker.Bank.goodsById.reduce((a, g) => a + g.stock, 0);
-    var worth = CookiStocker.Bank.goodsById.reduce(
-      (a, g) => a + g.stock * g.val * Game.cookiesPsRawHighest,
-      0,
-    );
+      // example rollup; adjust to taste
+      var p = CookiStocker.Bank.profit;
+      var held = CookiStocker.Bank.goodsById.reduce((a, g) => a + g.stock, 0);
+      var worth = CookiStocker.Bank.goodsById.reduce(
+        (a, g) => a + g.stock * g.val * Game.cookiesPsRawHighest,
+        0,
+      );
 
-    CCSE.AppendStatsGeneral(
-      '<div class="listing"><b>Stock Market has earned you :</b><div class="price plain"> $' +
-        Beautify(p) +
-        " (" +
-        Game.tinyCookie() +
-        Beautify(p * Game.cookiesPsRawHighest) +
-        " cookies)</div></div>",
-    );
-    /*		CCSE.AppendStatsGeneral(
+      CCSE.AppendStatsGeneral(
+        '<div class="listing"><b>Stock Market has earned you :</b><div class="price plain"> $' +
+          Beautify(p) +
+          " (" +
+          Game.tinyCookie() +
+          Beautify(p * Game.cookiesPsRawHighest) +
+          " cookies)</div></div>",
+      );
+      /*		CCSE.AppendStatsGeneral(
 			'<div class="listing"><b>CookiStocker</b></div>'
 			+ '<div class="listing">Net profits: <b>$' + Beautify(p, 2) + '</b></div>'
 			+ '<div class="listing">Total shares held: <b>' + Beautify(held) + '</b></div>'
 			+ '<div class="listing">Portfolio (at current prices): <b>$' + Beautify(worth,2) + '</b></div>'
 		);
 */
+    } catch (e) {
+      console.error("[CookiStocker] stats menu failed:", e);
+    }
   });
 };
 
@@ -1623,10 +1632,11 @@ CookiStocker.ChangeNumber = function (prefName, val) {
 
 // Build the Options menu body (uses CCSE.MenuHelper like Cookie Assistant)
 CookiStocker.getMenuString = function () {
-  const minutes = (stockerActivityReportFrequency || 0) / 60000; // may be fractional
-  const loopSeconds = Math.floor((stockerLoopFrequency || 0) / 1000);
-  var m = CCSE.MenuHelper;
-  let str = "";
+  try {
+    const minutes = (stockerActivityReportFrequency || 0) / 60000; // may be fractional
+    const loopSeconds = Math.floor((stockerLoopFrequency || 0) / 1000);
+    var m = CCSE.MenuHelper;
+    let str = "";
 
   str += '<div id="csRoot">';
 
@@ -1903,7 +1913,11 @@ CookiStocker.getMenuString = function () {
     "</div>";
 
   str += "</div>";
-  return str;
+    return str;
+  } catch (e) {
+    console.error("[CookiStocker] getMenuString failed:", e);
+    return '<div class="listing">CookiStocker menu unavailable (CCSE error).</div>';
+  }
 };
 
 // ---------- Inline option comments (no tooltips) ----------
