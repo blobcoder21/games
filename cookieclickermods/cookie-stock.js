@@ -547,647 +547,6 @@ CookiStocker.ReplaceGameMenu = function () {
   });
 };
 
-Game.registerMod("CookiStocker", {
-  init: function () {
-    Game.registerHook("reset", function (hard) {
-      CookiStocker.reset(hard);
-    });
-
-    // Defer menu wiring until CCSE is available (prevents load-time crash)
-    (function waitCCSE(tries) {
-      if (
-        typeof CCSE !== "undefined" &&
-        typeof CCSE.AppendCollapsibleOptionsMenu === "function" &&
-        typeof CCSE.AppendStatsVersionNumber === "function"
-      ) {
-        try {
-          CookiStocker.ReplaceGameMenu();
-
-          // CCSE also patches getGoodMaxStock and its eval'd code references
-          // an `oldGet` that doesn't exist in its scope. Re-wrap the function
-          // so CCSE's broken patch can't crash the game's draw loop.
-          try {
-            var M2 = Game.Objects["Bank"].minigame;
-            if (M2 && typeof M2.getGoodMaxStock === "function") {
-              var _origGet2 = M2.getGoodMaxStock;
-              M2.getGoodMaxStock = function (good) {
-                try {
-                  return _origGet2.call(this, good);
-                } catch (e) {
-                  console.error(
-                    "[CookiStocker] getGoodMaxStock (CCSE) failed:",
-                    e,
-                  );
-                  return 0;
-                }
-              };
-            }
-          } catch (e) {
-            console.error(
-              "[CookiStocker] getGoodMaxStock re-wrap failed:",
-              e,
-            );
-          }
-        } catch (e) {
-          console.error(
-            "[CookiStocker] ReplaceGameMenu failed:",
-            e,
-          );
-          if (tries > 0) {
-            console.warn(
-              "[CookiStocker] ReplaceGameMenu will retry shortly:",
-              e,
-            );
-            setTimeout(function () {
-              waitCCSE(tries - 1);
-            }, 250);
-          } else {
-            console.warn(
-              "[CookiStocker] ReplaceGameMenu failed; giving up.",
-            );
-          }
-          return;
-        }
-      } else if (tries > 0) {
-        setTimeout(function () {
-          waitCCSE(tries - 1);
-        }, 250);
-      } else {
-        console.warn(
-          "[CookiStocker] CCSE not detected; Options/Stats menu will not be installed.",
-        );
-      }
-    })(120); // up to ~30s
-
-    Game.Notify("CookiStocker is loaded", stockerGreeting, [1, 33], false);
-
-    // Your loop bootstrap already self-defers until the Bank minigame is ready
-    this.startStocking();
-  },
-
-  save: function () {
-    return CookiStocker.save();
-  },
-
-  // The game will pass the string we returned from save() back into load(str).
-  // We defer until the Bank minigame is present so CookiStocker.load can safely touch its state.
-  load: function (str) {
-    var tries = 0;
-    (function tryLoad() {
-      var bankReady =
-        typeof Game === "object" &&
-        Game.ready &&
-        Game.Objects &&
-        Game.Objects["Bank"] &&
-        Game.Objects["Bank"].minigame &&
-        stockList.Goods[0];
-
-      if (bankReady) {
-        try {
-          // Ensure CookiStocker sees the Bank minigame
-          if (typeof CookiStocker.Bank === "undefined" || !CookiStocker.Bank) {
-            CookiStocker.Bank = Game.Objects["Bank"].minigame;
-          }
-          CookiStocker.load(str || "");
-        } catch (e) {
-          console.warn("[CookiStocker] load failed:", e);
-        }
-      } else {
-        // Try again a few times while the game finishes loading UI/minigames.
-        if (tries++ < 120)
-          setTimeout(tryLoad, 250); // up to ~30s
-        else
-          console.warn(
-            "[CookiStocker] load skipped (Bank minigame never became ready).",
-          );
-      }
-    })();
-  },
-
-  startStocking: function () {
-    if (!(CookiStocker.Bank = Game.Objects["Bank"].minigame)) {
-      //			console.log('=====$$$=== Stock Market minigame has not initialised yet! Will try again in 500 ms.');
-      setTimeout(() => {
-        this.startStocking();
-      }, 500);
-      return;
-    } else {
-      console.log(
-        "=====$$$=== CookiStocker logic loop initialised at " + new Date(),
-      );
-      console.log("=====$$$=== With main options as follows:");
-      console.log(
-        "=====$$$=== Logic loop frequency: " +
-          stockerTimeBeautifier(stockerLoopFrequency),
-      );
-      console.log(
-        "=====$$$=== Report frequency: " +
-          stockerTimeBeautifier(stockerActivityReportFrequency),
-      );
-      console.log("=====$$$=== Cheating: " + stockerForceLoopUpdates);
-      console.log(stockList.Check);
-    }
-    CookiStocker.Bank = Game.Objects["Bank"].minigame;
-    CookiStocker.patchedMaxStock ||
-      (function () {
-        /* the override above */
-      })();
-    if (!CookiStocker.patchedMaxStock) {
-      try {
-        var M = Game.Objects["Bank"].minigame;
-        var oldGet = M.getGoodMaxStock;
-        M.getGoodMaxStock = function (good) {
-          try {
-            var base = oldGet.call(this, good);
-          } catch (e) {
-            console.error("[CookiStocker] getGoodMaxStock base failed:", e);
-            var base = 0;
-          }
-          if (
-            CookiStocker.Bank.officeLevel < 3 ||
-            stockList.Profits < CS_PLASMIC_PROFITS
-          )
-            return base;
-
-          var mult = 1;
-
-          if (!stockList.shadowGone && stockList.Profits >= CS_GASEOUS_PROFITS) {
-            if (
-              Game.Achievements["Gaseous assets"] &&
-              Game.Achievements["Gaseous assets"].won
-            ) {
-              Game.Achievements["Gaseous assets"].pool = "";
-              stockList.shadowGone = true;
-            } else return;
-          }
-          if (Game.Objects["Bank"].level >= 12) {
-            if (stockerExponential && stockList.origCookiesPsRawHighest)
-              mult *=
-                Game.cookiesPsRawHighest **
-                (stockerExponentialPower / stockList.origCookiesPsRawHighest);
-            if (
-              Game.Achievements["Plasmic assets"] &&
-              Game.Achievements["Plasmic assets"].won &&
-              stockList.Profits >= CS_PLASMIC_PROFITS * mult
-            )
-              mult *= 2;
-            if (
-              Game.Achievements["Bose-Einstein Condensed Assets"] &&
-              Game.Achievements["Bose-Einstein Condensed Assets"].won &&
-              stockList.Profits >= CS_BOSE_EINSTEIN_PROFITS * mult
-            )
-              mult *= 2;
-          }
-          return Math.ceil(base * mult);
-        };
-        CookiStocker.patchedMaxStock = true;
-      } catch (e) {
-        console.error("[CookiStocker] max stock patch failed:", e);
-      }
-    }
-    CookiStocker.installBankTickHook();
-
-    let datStr = `
-			<div class="stocker-stats">
-				<span class="stat">Net profits: <span id="Profits">$0</span>.</span>
-				<span class="stat">Profits per hour: <span id="profitsHour">$0</span>.</span>
-				<span class="stat">Profits per day: <span id="profitsDay">$0</span>.</span>
-				<span class="stat">Gross profits: <span id="grossProfits">$0</span>.</span>
-				<span class="stat">Gross losses: <span id="grossLosses">$0</span>.</span>
-				<span class="stat">Runtime: <span id="runTime">${stockerForceLoopUpdates ? "0:00:00" : "0:00"}</span></span>
-			</div>
-		`;
-
-    let datStrWarn = `
-			<div class="stocker-stats" id="stockerWarnLine" style="display:none;">
-				<span class="stat" style="font-size:12px;color:#ff3b3b;font-weight:bold;">
-				THERE ARE INSUFFICENT RESOURCES TO RUN AUTOMATIC TRADING. PLEASE SEE THE FOLLOWING LINE AND READ THE STEAM GUIDE.
-				</span>
-			</div>
-		`;
-
-    let datStrWarn2 = `
-			<div class="stocker-stats" id="stockerWarnLine2" style="display:none;">
-				<span class="stat" style="font-size:12px;color:#ff3b3b;font-weight:bold;">
-				AUTO TRADING IS TURNED OFF IN THE OPTIONS.
-				</span>
-			</div>
-		`;
-
-    let datStrWarn3 = `
-			<div class="stocker-stats" id="stockerWarnLine3" style="display:none;">
-				<span class="stat" style="font-size:12px;color:#ff3b3b;font-weight:bold;">
-				THE STOCK MARKET IS TURNED OFF IN THE OPTIONS.
-				</span>
-			</div>
-		`;
-    l("bankHeader").firstChild.insertAdjacentHTML("beforeend", datStr);
-
-    let datStr1 = `
-			<div class="stocker-stats">
-				<span class="stat">Brokers: <span id="Brokers">0</span>.</span>
-				<span class="stat">Brokers Needed: <span id="brokersNeeded">0</span>.</span>
-				<span class="stat">Banked cookies: <span id="bankedCookies">0</span>.</span>
-				<span class="stat">Required cookie minimum: <span id="minCookies">0</span>.</span>
-				<span class="stat">Maximum: <span id="maxCookies">0</span>.</span>
-			</div>
-		`;
-
-    l("bankHeader").firstChild.insertAdjacentHTML("beforeend", datStrWarn);
-    l("bankHeader").firstChild.insertAdjacentHTML("beforeend", datStrWarn2);
-    l("bankHeader").firstChild.insertAdjacentHTML("beforeend", datStrWarn3);
-    l("bankHeader").firstChild.insertAdjacentHTML("beforeend", datStr1);
-    // optional lines now live in a single container we control
-    let extra = l(CookiStocker.extraStatsId);
-    if (!extra) {
-      extra = document.createElement("div");
-      extra.id = CookiStocker.extraStatsId;
-      l("bankHeader").firstChild.appendChild(extra);
-    }
-    // initial visibility / content
-    if (stockerAdditionalTradingStats) {
-      extra.innerHTML = CookiStocker.buildExtraStatsHTML();
-      extra.style.display = "";
-    } else {
-      extra.innerHTML = ""; // keep empty and hidden initially
-      extra.style.display = "none";
-    }
-
-    let market = CookiStocker.Bank.goodsById; // read market
-    console.log("Reading the market:");
-    stockList.startingProfits = CookiStocker.Bank.profit;
-    for (let i = 0; i < market.length; i++) {
-      stockList.Goods.push({
-        name: market[i].name,
-        stock: market[i].stock,
-        currentPrice: market[i].val,
-        mode: market[i].mode,
-        lastMode: market[i].mode,
-        lastDur: market[i].dur,
-        unchangedDur: 0,
-        dropCount: 0,
-        riseCount: 0,
-        profit: 0,
-        someSold: false,
-        someBought: false,
-      });
-      console.log(
-        "Stock: " +
-          market[i].name.replace("%1", Game.bakeryName) +
-          " Status: " +
-          modeDecoder[market[i].mode] +
-          " at $" +
-          market[i].val +
-          (market[i].stock ? " (own)" : ""),
-      );
-    }
-    CookiStocker.ensureAchievements();
-    CookiStocker.ensureReportTimer();
-    CookiStocker.TradingStats();
-    // restart the loop cleanly
-    if (CookiStocker._loopTimer) {
-      clearInterval(CookiStocker._loopTimer);
-      CookiStocker._loopTimer = 0;
-    }
-    CookiStocker._loopTimer = setInterval(function () {
-      // Skip all actions during ascension countdown / reincarnation transition
-      if (
-        Game.OnAscend ||
-        (typeof Game.AscendTimer !== "undefined" && Game.AscendTimer > 0) ||
-        l("Brokers") == null
-      )
-        return;
-      if (stockerMarketOn) {
-        if (stockList.noModActions) {
-          stockList.noModActions = false;
-          CookiStocker.TradingStats();
-        }
-        if (stockerForceLoopUpdates)
-          CookiStocker.Bank.secondsPerTick = Math.max(
-            0.001,
-            stockerLoopFrequency / 1000,
-          );
-        else CookiStocker.Bank.secondsPerTick = 60;
-      } else {
-        if (stockList.noModActions) return;
-        CookiStocker.Bank.secondsPerTick = CS_TEN_YEARS;
-      }
-
-      let doUpdate = false;
-
-      // setting stockerForceLoopUpdates to true will make the logic loop force the market to tick every time it triggers,
-      // making this an obvious cheat, and i will personally resent you.
-      //
-      // but
-      // if you backup your save and set stockerLoopFrequency to like 10 milliseconds it looks very fun and effective.
-      // yes, this is how i made the gif on the steam guide page.  [Comments by Gingerguy.]
-      if (!stockerForceLoopUpdates && stockerMarketOn)
-        stockerLoopFrequency = CookiStocker.Bank.secondsPerTick * 500; // Keep up to date
-      if (
-        CookiStocker.Bank.profit >= 100000000 &&
-        !Game.Achievements["Plasmic assets"].won
-      )
-        Game.Win("Plasmic assets");
-      if (
-        CookiStocker.Bank.profit >= 500000000 &&
-        !Game.Achievements["Bose-Einstein Condensed Assets"].won
-      )
-        Game.Win("Bose-Einstein Condensed Assets");
-
-      const smallDelta = 3;
-      const largeDelta = 4;
-      const alwaysBuyBelow = 2;
-      const neverSellBelow = 11;
-      let amount = 0;
-
-      if (
-        !Game.OnAscend &&
-        (stockerAutoBuyMinimumBrokers || stockerAutoBuyAdditionalBrokers)
-      ) {
-        let buyBrokers, buyMoreBrokers;
-        let tradingStats = false;
-        let cost;
-
-        buyBrokers = stockerMinBrokers - CookiStocker.Bank.brokers;
-        if (
-          stockerAutoBuyMinimumBrokers &&
-          buyBrokers > 0 &&
-          stockerMinBrokers <= CookiStocker.Bank.getMaxBrokers() &&
-          buyBrokers * CookiStocker.Bank.getBrokerPrice() < Game.cookies * 0.1
-        ) {
-          Game.Spend(CookiStocker.Bank.getBrokerPrice() * buyBrokers);
-          CookiStocker.Bank.brokers = stockerMinBrokers;
-          tradingStats = true;
-        }
-        buyMoreBrokers =
-          CookiStocker.Bank.getMaxBrokers() - CookiStocker.Bank.brokers;
-        if (
-          stockerAutoBuyAdditionalBrokers &&
-          buyMoreBrokers > 0 &&
-          (cost = CookiStocker.Bank.getBrokerPrice() * buyMoreBrokers) <
-            Game.cookies * 0.1
-        ) {
-          Game.Spend(cost);
-          CookiStocker.Bank.brokers += buyMoreBrokers;
-          tradingStats = true;
-        }
-        if (tradingStats) CookiStocker.TradingStats();
-      }
-      market = CookiStocker.Bank.goodsById; // update market
-      stockList.canBuy =
-        stockerAutoTrading && CookiStocker.Bank.brokers >= stockerMinBrokers;
-      for (let i = 0; i < market.length; i++) {
-        if (
-          stockList.canBuy &&
-          !(
-            (CookiStocker.Bank.getGoodMaxStock(market[i]) - market[i].stock) *
-              Game.cookiesPsRawHighest *
-              market[i].val <
-            Game.cookies * stockerCookiesThreshold
-          )
-        ) {
-          let now = Date.now();
-          let remainder;
-
-          stockList.Start += now - stockList.lastTime;
-          stockList.Uptime = Math.floor((now - stockList.Start) / 1000) * 1000;
-          if ((remainder = stockList.Uptime % stockerLoopFrequency)) {
-            stockList.Start +=
-              CookiStocker.Bank.secondsPerTick * 1000 + remainder;
-            stockList.Uptime -=
-              CookiStocker.Bank.secondsPerTick * 1000 + remainder;
-          }
-          stockList.lastTime = now;
-          CookiStocker.TradingStats();
-          stockList.canBuy = false;
-          if (!stockerAutoTrading) {
-            stockList.noModActions = true;
-            if (CookiStocker.reportTimer) {
-              clearInterval(CookiStocker.reportTimer);
-              CookiStocker.reportTimer = null;
-            }
-          }
-        }
-        amount += Game.ObjectsById[i + 2].amount;
-      }
-      if (!(stockList.Amount = amount))
-        // No stocks active
-        return;
-      CookiStocker.TradingStats();
-      CookiStocker.ensureReportTimer();
-      if (stockList.canBuy && !stockList.origCookiesPsRawHighest)
-        stockList.origCookiesPsRawHighest = Game.cookiesPsRawHighest;
-      for (let i = 0; i < market.length; i++) {
-        let stockerNotificationTime = stockerFastNotifications * 6;
-        let lastPrice = stockList.Goods[i].currentPrice;
-        let currentPrice = market[i].val;
-
-        // update stockList
-        stockList.Goods[i].stock = market[i].stock;
-        stockList.Goods[i].currentPrice = market[i].val;
-        stockList.Goods[i].mode = market[i].mode;
-
-        let md = stockList.Goods[i].mode;
-        let lmd = stockList.Goods[i].lastMode;
-        let lastStock = market[i].stock;
-        let deltaPrice = largeDelta;
-        let stockName = market[i].name.replace("%1", Game.bakeryName);
-
-        // Our ceilingPrice is the maximum of the bank ceiling and the (deprecated but still useful) stock ceiling
-        let ceilingPrice = Math.max(
-          10 * (i + 1) + Game.Objects["Bank"].level + 49,
-          97 + Game.Objects["Bank"].level * 3,
-        );
-
-        if (
-          stockList.Goods[i].lastDur != market[i].dur ||
-          ++stockList.Goods[i].unchangedDur > 1
-        ) {
-          stockList.Goods[i].unchangedDur = 0;
-          doUpdate = true;
-        }
-        if (
-          Game.ObjectsById[i + 2].amount == 0 &&
-          stockerConsoleAnnouncements &&
-          doUpdate &&
-          stockList.canBuy
-        ) {
-          console.log(`${stockName} stock is inactive`);
-          continue;
-        }
-        if (
-          lmd == md &&
-          ((stockList.Goods[i].stock && (md == 2 || md == 4)) || // Make selling into a downturn easier
-            (!stockList.Goods[i].stock && (md == 1 || md == 3)))
-        )
-          // Make buying into an upturn easier
-          deltaPrice = smallDelta;
-        if (
-          md != lmd &&
-          ((md == 3 && lmd != 1) ||
-            (md == 4 && lmd != 2) ||
-            (md == 1 && lmd != 3) ||
-            (md == 2 && lmd != 4))
-        ) {
-          stockList.Goods[i].dropCount = 0;
-          stockList.Goods[i].riseCount = 0;
-        } else if (currentPrice > lastPrice) {
-          stockList.Goods[i].dropCount = 0;
-          stockList.Goods[i].riseCount++;
-        } else if (currentPrice < lastPrice) {
-          stockList.Goods[i].riseCount = 0;
-          stockList.Goods[i].dropCount++;
-        }
-        if (stockerConsoleAnnouncements && doUpdate && stockList.canBuy) {
-          // Tick tick
-          if (md == lmd)
-            console.log(
-              `${stockName} mode is unchanged at ${lmd} [${modeDecoder[lmd]}] at $${Beautify(currentPrice, 2)}`,
-            );
-          else
-            console.log(
-              `MODE CHANGE ${stockName} old mode was ${lmd} [${modeDecoder[lmd]}] and new mode is ${md} [${modeDecoder[md]}] at $${Beautify(currentPrice, 2)}`,
-            );
-        }
-        stockList.Goods[i].lastDur = market[i].dur;
-        if (
-          // buy conditions
-          (currentPrice < alwaysBuyBelow ||
-            (md != 4 &&
-              ((currentPrice > lastPrice &&
-                stockList.Goods[i].riseCount >= deltaPrice) ||
-                ((md == 1 || md == 3) && md != lmd) ||
-                (md == 0 &&
-                  !stockList.Goods[i].someSold &&
-                  stockList.Goods[i].dropCount < deltaPrice &&
-                  currentPrice >= 10)) &&
-              (currentPrice < ceilingPrice || md == 1 || md == 3))) &&
-          stockList.canBuy &&
-          (CookiStocker.Bank.getGoodMaxStock(market[i]) - market[i].stock) *
-            Game.cookiesPsRawHighest *
-            market[i].val <
-            Game.cookies * stockerCookiesThreshold &&
-          CookiStocker.Bank.brokers >= stockerMinBrokers &&
-          CookiStocker.Bank.buyGood(i, 10000) // actual buy attempt
-        ) {
-          // buying
-          let mode =
-            lmd != md ? "is no longer in " + modeDecoder[lmd] + " mode" : "is ";
-          let units = market[i].stock - lastStock;
-
-          stockList.Goods[i].someBought = true;
-          stockList.Goods[i].stock = market[i].stock;
-          if (typeof market[i].prevBuyMode1 !== "undefined") {
-            market[i].prevBuyMode1 = lmd;
-            market[i].prevBuyMode2 = md;
-          }
-          market[i].buyTime = Date.now();
-          if (typeof StockAssistant !== "undefined") {
-            StockAssistant.stockData.goods[i].boughtVal = market[i].prev;
-            StockAssistant.buyGood(i);
-          }
-          stockList.Purchases++;
-          if (stockerTransactionNotifications)
-            if (currentPrice >= 2)
-              Game.Notify(
-                `Buying ${stockName} ${new Date().toLocaleTimeString([], { hourCycle: "h23", hour: "2-digit", minute: "2-digit" })}`,
-                `Buying ${units} unit${units > 1 ? "s" : ""}. The stock ${mode} at $${Beautify(market[i].prev, 2)} per unit (your buying price) and is in ${modeDecoder[md]} mode now.`,
-                goodIcons[i],
-                stockerNotificationTime,
-              );
-            else
-              Game.Notify(
-                `Buying ${stockName} ${new Date().toLocaleTimeString([], { hourCycle: "h23", hour: "2-digit", minute: "2-digit" })}`,
-                `Buying ${units} unit${units > 1 ? "s" : ""}. The price has dropped below $2 per unit, and your buying price is $${Beautify(market[i].prev, 2)}.`,
-                goodIcons[i],
-                stockerNotificationTime,
-              );
-          if (stockerConsoleAnnouncements)
-            console.log(
-              "=====$$$=== Buying " +
-                stockName +
-                " at $" +
-                Beautify(market[i].prev, 2),
-            );
-        } else if (
-          // sell conditions
-          stockList.Goods[i].stock > 0 &&
-          ((currentPrice < lastPrice &&
-            stockList.Goods[i].dropCount >= deltaPrice) ||
-            ((md == 2 || md == 4) && md != lmd)) &&
-          currentPrice >= neverSellBelow // not near the bottom
-        ) {
-          let profit = 0;
-          let strProfit = "profit ";
-          let mode =
-            lmd != md
-              ? "is no longer in " + modeDecoder[lmd] + " mode and "
-              : "";
-
-          if (!CookiStocker.Bank.sellGood(i, stockList.Goods[i].stock)) {
-            stockList.Goods[i].lastMode = stockList.Goods[i].mode;
-            continue;
-          }
-          stockList.Goods[i].someSold = true;
-          market[i].prevSale = market[i].val;
-          market[i].prevSellMode1 = lmd;
-          market[i].prevSellMode2 = md;
-          market[i].sellTime = Date.now();
-          if (typeof StockAssistant !== "undefined") StockAssistant.sellGood(i);
-          stockList.Sales++;
-          profit = (market[i].val - market[i].prev) * stockList.Goods[i].stock;
-          stockList.Goods[i].profit += profit;
-          if (profit > 0) {
-            stockList.grossProfits += profit;
-            stockList.profitableTrades++;
-          } else {
-            stockList.grossLosses += -profit;
-            stockList.unprofitableTrades++;
-          }
-          stockList.netProfits += profit;
-          stockerModeProfits[lmd][md][0] += profit;
-          stockerModeProfits[lmd][md][1] += profit;
-          stockerModeProfits[lmd][md][2]++;
-          if (profit < 0) {
-            strProfit = "loss ";
-            profit = -profit;
-          }
-          if (stockerTransactionNotifications)
-            Game.Notify(
-              `Selling ${stockName} ${new Date().toLocaleTimeString([], { hourCycle: "h23", hour: "2-digit", minute: "2-digit" })}`,
-              `Selling ${stockList.Goods[i].stock} unit${stockList.Goods[i].stock > 1 ? "s" : ""} at a price of $${Beautify(market[i].val, 2)} per unit for a ${strProfit} of $${Beautify(profit, 2)} and total revenue of $${Beautify(market[i].val * stockList.Goods[i].stock, 2)}, which is added to the total market profits. The stock ${mode} is in ${modeDecoder[md]} mode now. Bought at a price of $${Beautify(market[i].prev, 2)} per unit.`,
-              goodIcons[i],
-              stockerNotificationTime,
-            );
-          if (stockerConsoleAnnouncements)
-            console.log(
-              `=====$$$=== Selling ${stockName} at $${Beautify(market[i].val, 2)} for a ${strProfit}of $${Beautify(profit, 2)} and total revenue of $${Beautify(market[i].val * stockList.Goods[i].stock, 2)}. Last bought at $${Beautify(market[i].prev, 2)}.`,
-            );
-        }
-        stockList.Profits =
-          CookiStocker.Bank.profit - stockList.startingProfits;
-        stockList.Goods[i].lastMode = stockList.Goods[i].mode;
-      }
-      stockList.profitableStocks = stockList.unprofitableStocks = 0;
-      for (let i = 0; i < market.length; i++) {
-        // Must recalculate the whole list on every pass
-        if (stockList.Goods[i].profit > 0) stockList.profitableStocks++;
-        else if (stockList.Goods[i].profit < 0) stockList.unprofitableStocks++;
-      }
-      CookiStocker.TradingStats();
-      if (!stockerMarketOn) {
-        if (CookiStocker.reportTimer) {
-          clearInterval(CookiStocker.reportTimer);
-          CookiStocker.reportTimer = null;
-        }
-        CookiStocker.Reports(); // one last summary
-        stockList.noModActions = true; // freeze until ON
-        return;
-      }
-    }, stockerLoopFrequency);
-  },
-});
-
 CookiStocker.Reports = function () {
   if (l("Brokers") == null || !stockList.Amount || !stockList.canBuy) return; // Stock market went away
   CookiStocker.TradingStats();
@@ -2425,3 +1784,644 @@ CookiStocker.reset = function (hard) {
     Game.Achievements["Bose-Einstein Condensed Assets"].won = 0;
   }
 };
+Game.registerMod("CookiStocker", {
+  init: function () {
+    Game.registerHook("reset", function (hard) {
+      CookiStocker.reset(hard);
+    });
+
+    // Defer menu wiring until CCSE is available (prevents load-time crash)
+    (function waitCCSE(tries) {
+      if (
+        typeof CCSE !== "undefined" &&
+        typeof CCSE.AppendCollapsibleOptionsMenu === "function" &&
+        typeof CCSE.AppendStatsVersionNumber === "function"
+      ) {
+        try {
+          CookiStocker.ReplaceGameMenu();
+
+          // CCSE also patches getGoodMaxStock and its eval'd code references
+          // an `oldGet` that doesn't exist in its scope. Re-wrap the function
+          // so CCSE's broken patch can't crash the game's draw loop.
+          try {
+            var M2 = Game.Objects["Bank"].minigame;
+            if (M2 && typeof M2.getGoodMaxStock === "function") {
+              var _origGet2 = M2.getGoodMaxStock;
+              M2.getGoodMaxStock = function (good) {
+                try {
+                  return _origGet2.call(this, good);
+                } catch (e) {
+                  console.error(
+                    "[CookiStocker] getGoodMaxStock (CCSE) failed:",
+                    e,
+                  );
+                  return 0;
+                }
+              };
+            }
+          } catch (e) {
+            console.error(
+              "[CookiStocker] getGoodMaxStock re-wrap failed:",
+              e,
+            );
+          }
+        } catch (e) {
+          console.error(
+            "[CookiStocker] ReplaceGameMenu failed:",
+            e,
+          );
+          if (tries > 0) {
+            console.warn(
+              "[CookiStocker] ReplaceGameMenu will retry shortly:",
+              e,
+            );
+            setTimeout(function () {
+              waitCCSE(tries - 1);
+            }, 250);
+          } else {
+            console.warn(
+              "[CookiStocker] ReplaceGameMenu failed; giving up.",
+            );
+          }
+          return;
+        }
+      } else if (tries > 0) {
+        setTimeout(function () {
+          waitCCSE(tries - 1);
+        }, 250);
+      } else {
+        console.warn(
+          "[CookiStocker] CCSE not detected; Options/Stats menu will not be installed.",
+        );
+      }
+    })(120); // up to ~30s
+
+    Game.Notify("CookiStocker is loaded", stockerGreeting, [1, 33], false);
+
+    // Your loop bootstrap already self-defers until the Bank minigame is ready
+    this.startStocking();
+  },
+
+  save: function () {
+    return CookiStocker.save();
+  },
+
+  // The game will pass the string we returned from save() back into load(str).
+  // We defer until the Bank minigame is present so CookiStocker.load can safely touch its state.
+  load: function (str) {
+    var tries = 0;
+    (function tryLoad() {
+      var bankReady =
+        typeof Game === "object" &&
+        Game.ready &&
+        Game.Objects &&
+        Game.Objects["Bank"] &&
+        Game.Objects["Bank"].minigame &&
+        stockList.Goods[0];
+
+      if (bankReady) {
+        try {
+          // Ensure CookiStocker sees the Bank minigame
+          if (typeof CookiStocker.Bank === "undefined" || !CookiStocker.Bank) {
+            CookiStocker.Bank = Game.Objects["Bank"].minigame;
+          }
+          CookiStocker.load(str || "");
+        } catch (e) {
+          console.warn("[CookiStocker] load failed:", e);
+        }
+      } else {
+        // Try again a few times while the game finishes loading UI/minigames.
+        if (tries++ < 120)
+          setTimeout(tryLoad, 250); // up to ~30s
+        else
+          console.warn(
+            "[CookiStocker] load skipped (Bank minigame never became ready).",
+          );
+      }
+    })();
+  },
+
+  startStocking: function () {
+    if (!(CookiStocker.Bank = Game.Objects["Bank"].minigame)) {
+      //			console.log('=====$$$=== Stock Market minigame has not initialised yet! Will try again in 500 ms.');
+      setTimeout(() => {
+        this.startStocking();
+      }, 500);
+      return;
+    } else {
+      console.log(
+        "=====$$$=== CookiStocker logic loop initialised at " + new Date(),
+      );
+      console.log("=====$$$=== With main options as follows:");
+      console.log(
+        "=====$$$=== Logic loop frequency: " +
+          stockerTimeBeautifier(stockerLoopFrequency),
+      );
+      console.log(
+        "=====$$$=== Report frequency: " +
+          stockerTimeBeautifier(stockerActivityReportFrequency),
+      );
+      console.log("=====$$$=== Cheating: " + stockerForceLoopUpdates);
+      console.log(stockList.Check);
+    }
+    CookiStocker.Bank = Game.Objects["Bank"].minigame;
+    CookiStocker.patchedMaxStock ||
+      (function () {
+        /* the override above */
+      })();
+    if (!CookiStocker.patchedMaxStock) {
+      try {
+        var M = Game.Objects["Bank"].minigame;
+        var oldGet = M.getGoodMaxStock;
+        M.getGoodMaxStock = function (good) {
+          try {
+            var base = oldGet.call(this, good);
+          } catch (e) {
+            console.error("[CookiStocker] getGoodMaxStock base failed:", e);
+            var base = 0;
+          }
+          if (
+            CookiStocker.Bank.officeLevel < 3 ||
+            stockList.Profits < CS_PLASMIC_PROFITS
+          )
+            return base;
+
+          var mult = 1;
+
+          if (!stockList.shadowGone && stockList.Profits >= CS_GASEOUS_PROFITS) {
+            if (
+              Game.Achievements["Gaseous assets"] &&
+              Game.Achievements["Gaseous assets"].won
+            ) {
+              Game.Achievements["Gaseous assets"].pool = "";
+              stockList.shadowGone = true;
+            } else return;
+          }
+          if (Game.Objects["Bank"].level >= 12) {
+            if (stockerExponential && stockList.origCookiesPsRawHighest)
+              mult *=
+                Game.cookiesPsRawHighest **
+                (stockerExponentialPower / stockList.origCookiesPsRawHighest);
+            if (
+              Game.Achievements["Plasmic assets"] &&
+              Game.Achievements["Plasmic assets"].won &&
+              stockList.Profits >= CS_PLASMIC_PROFITS * mult
+            )
+              mult *= 2;
+            if (
+              Game.Achievements["Bose-Einstein Condensed Assets"] &&
+              Game.Achievements["Bose-Einstein Condensed Assets"].won &&
+              stockList.Profits >= CS_BOSE_EINSTEIN_PROFITS * mult
+            )
+              mult *= 2;
+          }
+          return Math.ceil(base * mult);
+        };
+        CookiStocker.patchedMaxStock = true;
+      } catch (e) {
+        console.error("[CookiStocker] max stock patch failed:", e);
+      }
+    }
+    CookiStocker.installBankTickHook();
+
+    let datStr = `
+			<div class="stocker-stats">
+				<span class="stat">Net profits: <span id="Profits">$0</span>.</span>
+				<span class="stat">Profits per hour: <span id="profitsHour">$0</span>.</span>
+				<span class="stat">Profits per day: <span id="profitsDay">$0</span>.</span>
+				<span class="stat">Gross profits: <span id="grossProfits">$0</span>.</span>
+				<span class="stat">Gross losses: <span id="grossLosses">$0</span>.</span>
+				<span class="stat">Runtime: <span id="runTime">${stockerForceLoopUpdates ? "0:00:00" : "0:00"}</span></span>
+			</div>
+		`;
+
+    let datStrWarn = `
+			<div class="stocker-stats" id="stockerWarnLine" style="display:none;">
+				<span class="stat" style="font-size:12px;color:#ff3b3b;font-weight:bold;">
+				THERE ARE INSUFFICENT RESOURCES TO RUN AUTOMATIC TRADING. PLEASE SEE THE FOLLOWING LINE AND READ THE STEAM GUIDE.
+				</span>
+			</div>
+		`;
+
+    let datStrWarn2 = `
+			<div class="stocker-stats" id="stockerWarnLine2" style="display:none;">
+				<span class="stat" style="font-size:12px;color:#ff3b3b;font-weight:bold;">
+				AUTO TRADING IS TURNED OFF IN THE OPTIONS.
+				</span>
+			</div>
+		`;
+
+    let datStrWarn3 = `
+			<div class="stocker-stats" id="stockerWarnLine3" style="display:none;">
+				<span class="stat" style="font-size:12px;color:#ff3b3b;font-weight:bold;">
+				THE STOCK MARKET IS TURNED OFF IN THE OPTIONS.
+				</span>
+			</div>
+		`;
+    l("bankHeader").firstChild.insertAdjacentHTML("beforeend", datStr);
+
+    let datStr1 = `
+			<div class="stocker-stats">
+				<span class="stat">Brokers: <span id="Brokers">0</span>.</span>
+				<span class="stat">Brokers Needed: <span id="brokersNeeded">0</span>.</span>
+				<span class="stat">Banked cookies: <span id="bankedCookies">0</span>.</span>
+				<span class="stat">Required cookie minimum: <span id="minCookies">0</span>.</span>
+				<span class="stat">Maximum: <span id="maxCookies">0</span>.</span>
+			</div>
+		`;
+
+    l("bankHeader").firstChild.insertAdjacentHTML("beforeend", datStrWarn);
+    l("bankHeader").firstChild.insertAdjacentHTML("beforeend", datStrWarn2);
+    l("bankHeader").firstChild.insertAdjacentHTML("beforeend", datStrWarn3);
+    l("bankHeader").firstChild.insertAdjacentHTML("beforeend", datStr1);
+    // optional lines now live in a single container we control
+    let extra = l(CookiStocker.extraStatsId);
+    if (!extra) {
+      extra = document.createElement("div");
+      extra.id = CookiStocker.extraStatsId;
+      l("bankHeader").firstChild.appendChild(extra);
+    }
+    // initial visibility / content
+    if (stockerAdditionalTradingStats) {
+      extra.innerHTML = CookiStocker.buildExtraStatsHTML();
+      extra.style.display = "";
+    } else {
+      extra.innerHTML = ""; // keep empty and hidden initially
+      extra.style.display = "none";
+    }
+
+    let market = CookiStocker.Bank.goodsById; // read market
+    console.log("Reading the market:");
+    stockList.startingProfits = CookiStocker.Bank.profit;
+    for (let i = 0; i < market.length; i++) {
+      stockList.Goods.push({
+        name: market[i].name,
+        stock: market[i].stock,
+        currentPrice: market[i].val,
+        mode: market[i].mode,
+        lastMode: market[i].mode,
+        lastDur: market[i].dur,
+        unchangedDur: 0,
+        dropCount: 0,
+        riseCount: 0,
+        profit: 0,
+        someSold: false,
+        someBought: false,
+      });
+      console.log(
+        "Stock: " +
+          market[i].name.replace("%1", Game.bakeryName) +
+          " Status: " +
+          modeDecoder[market[i].mode] +
+          " at $" +
+          market[i].val +
+          (market[i].stock ? " (own)" : ""),
+      );
+    }
+    CookiStocker.ensureAchievements();
+    CookiStocker.ensureReportTimer();
+    CookiStocker.TradingStats();
+    // restart the loop cleanly
+    if (CookiStocker._loopTimer) {
+      clearInterval(CookiStocker._loopTimer);
+      CookiStocker._loopTimer = 0;
+    }
+    CookiStocker._loopTimer = setInterval(function () {
+      // Skip all actions during ascension countdown / reincarnation transition
+      if (
+        Game.OnAscend ||
+        (typeof Game.AscendTimer !== "undefined" && Game.AscendTimer > 0) ||
+        l("Brokers") == null
+      )
+        return;
+      if (stockerMarketOn) {
+        if (stockList.noModActions) {
+          stockList.noModActions = false;
+          CookiStocker.TradingStats();
+        }
+        if (stockerForceLoopUpdates)
+          CookiStocker.Bank.secondsPerTick = Math.max(
+            0.001,
+            stockerLoopFrequency / 1000,
+          );
+        else CookiStocker.Bank.secondsPerTick = 60;
+      } else {
+        if (stockList.noModActions) return;
+        CookiStocker.Bank.secondsPerTick = CS_TEN_YEARS;
+      }
+
+      let doUpdate = false;
+
+      // setting stockerForceLoopUpdates to true will make the logic loop force the market to tick every time it triggers,
+      // making this an obvious cheat, and i will personally resent you.
+      //
+      // but
+      // if you backup your save and set stockerLoopFrequency to like 10 milliseconds it looks very fun and effective.
+      // yes, this is how i made the gif on the steam guide page.  [Comments by Gingerguy.]
+      if (!stockerForceLoopUpdates && stockerMarketOn)
+        stockerLoopFrequency = CookiStocker.Bank.secondsPerTick * 500; // Keep up to date
+      if (
+        CookiStocker.Bank.profit >= 100000000 &&
+        !Game.Achievements["Plasmic assets"].won
+      )
+        Game.Win("Plasmic assets");
+      if (
+        CookiStocker.Bank.profit >= 500000000 &&
+        !Game.Achievements["Bose-Einstein Condensed Assets"].won
+      )
+        Game.Win("Bose-Einstein Condensed Assets");
+
+      const smallDelta = 3;
+      const largeDelta = 4;
+      const alwaysBuyBelow = 2;
+      const neverSellBelow = 11;
+      let amount = 0;
+
+      if (
+        !Game.OnAscend &&
+        (stockerAutoBuyMinimumBrokers || stockerAutoBuyAdditionalBrokers)
+      ) {
+        let buyBrokers, buyMoreBrokers;
+        let tradingStats = false;
+        let cost;
+
+        buyBrokers = stockerMinBrokers - CookiStocker.Bank.brokers;
+        if (
+          stockerAutoBuyMinimumBrokers &&
+          buyBrokers > 0 &&
+          stockerMinBrokers <= CookiStocker.Bank.getMaxBrokers() &&
+          buyBrokers * CookiStocker.Bank.getBrokerPrice() < Game.cookies * 0.1
+        ) {
+          Game.Spend(CookiStocker.Bank.getBrokerPrice() * buyBrokers);
+          CookiStocker.Bank.brokers = stockerMinBrokers;
+          tradingStats = true;
+        }
+        buyMoreBrokers =
+          CookiStocker.Bank.getMaxBrokers() - CookiStocker.Bank.brokers;
+        if (
+          stockerAutoBuyAdditionalBrokers &&
+          buyMoreBrokers > 0 &&
+          (cost = CookiStocker.Bank.getBrokerPrice() * buyMoreBrokers) <
+            Game.cookies * 0.1
+        ) {
+          Game.Spend(cost);
+          CookiStocker.Bank.brokers += buyMoreBrokers;
+          tradingStats = true;
+        }
+        if (tradingStats) CookiStocker.TradingStats();
+      }
+      market = CookiStocker.Bank.goodsById; // update market
+      stockList.canBuy =
+        stockerAutoTrading && CookiStocker.Bank.brokers >= stockerMinBrokers;
+      for (let i = 0; i < market.length; i++) {
+        if (
+          stockList.canBuy &&
+          !(
+            (CookiStocker.Bank.getGoodMaxStock(market[i]) - market[i].stock) *
+              Game.cookiesPsRawHighest *
+              market[i].val <
+            Game.cookies * stockerCookiesThreshold
+          )
+        ) {
+          let now = Date.now();
+          let remainder;
+
+          stockList.Start += now - stockList.lastTime;
+          stockList.Uptime = Math.floor((now - stockList.Start) / 1000) * 1000;
+          if ((remainder = stockList.Uptime % stockerLoopFrequency)) {
+            stockList.Start +=
+              CookiStocker.Bank.secondsPerTick * 1000 + remainder;
+            stockList.Uptime -=
+              CookiStocker.Bank.secondsPerTick * 1000 + remainder;
+          }
+          stockList.lastTime = now;
+          CookiStocker.TradingStats();
+          stockList.canBuy = false;
+          if (!stockerAutoTrading) {
+            stockList.noModActions = true;
+            if (CookiStocker.reportTimer) {
+              clearInterval(CookiStocker.reportTimer);
+              CookiStocker.reportTimer = null;
+            }
+          }
+        }
+        amount += Game.ObjectsById[i + 2].amount;
+      }
+      if (!(stockList.Amount = amount))
+        // No stocks active
+        return;
+      CookiStocker.TradingStats();
+      CookiStocker.ensureReportTimer();
+      if (stockList.canBuy && !stockList.origCookiesPsRawHighest)
+        stockList.origCookiesPsRawHighest = Game.cookiesPsRawHighest;
+      for (let i = 0; i < market.length; i++) {
+        let stockerNotificationTime = stockerFastNotifications * 6;
+        let lastPrice = stockList.Goods[i].currentPrice;
+        let currentPrice = market[i].val;
+
+        // update stockList
+        stockList.Goods[i].stock = market[i].stock;
+        stockList.Goods[i].currentPrice = market[i].val;
+        stockList.Goods[i].mode = market[i].mode;
+
+        let md = stockList.Goods[i].mode;
+        let lmd = stockList.Goods[i].lastMode;
+        let lastStock = market[i].stock;
+        let deltaPrice = largeDelta;
+        let stockName = market[i].name.replace("%1", Game.bakeryName);
+
+        // Our ceilingPrice is the maximum of the bank ceiling and the (deprecated but still useful) stock ceiling
+        let ceilingPrice = Math.max(
+          10 * (i + 1) + Game.Objects["Bank"].level + 49,
+          97 + Game.Objects["Bank"].level * 3,
+        );
+
+        if (
+          stockList.Goods[i].lastDur != market[i].dur ||
+          ++stockList.Goods[i].unchangedDur > 1
+        ) {
+          stockList.Goods[i].unchangedDur = 0;
+          doUpdate = true;
+        }
+        if (
+          Game.ObjectsById[i + 2].amount == 0 &&
+          stockerConsoleAnnouncements &&
+          doUpdate &&
+          stockList.canBuy
+        ) {
+          console.log(`${stockName} stock is inactive`);
+          continue;
+        }
+        if (
+          lmd == md &&
+          ((stockList.Goods[i].stock && (md == 2 || md == 4)) || // Make selling into a downturn easier
+            (!stockList.Goods[i].stock && (md == 1 || md == 3)))
+        )
+          // Make buying into an upturn easier
+          deltaPrice = smallDelta;
+        if (
+          md != lmd &&
+          ((md == 3 && lmd != 1) ||
+            (md == 4 && lmd != 2) ||
+            (md == 1 && lmd != 3) ||
+            (md == 2 && lmd != 4))
+        ) {
+          stockList.Goods[i].dropCount = 0;
+          stockList.Goods[i].riseCount = 0;
+        } else if (currentPrice > lastPrice) {
+          stockList.Goods[i].dropCount = 0;
+          stockList.Goods[i].riseCount++;
+        } else if (currentPrice < lastPrice) {
+          stockList.Goods[i].riseCount = 0;
+          stockList.Goods[i].dropCount++;
+        }
+        if (stockerConsoleAnnouncements && doUpdate && stockList.canBuy) {
+          // Tick tick
+          if (md == lmd)
+            console.log(
+              `${stockName} mode is unchanged at ${lmd} [${modeDecoder[lmd]}] at $${Beautify(currentPrice, 2)}`,
+            );
+          else
+            console.log(
+              `MODE CHANGE ${stockName} old mode was ${lmd} [${modeDecoder[lmd]}] and new mode is ${md} [${modeDecoder[md]}] at $${Beautify(currentPrice, 2)}`,
+            );
+        }
+        stockList.Goods[i].lastDur = market[i].dur;
+        if (
+          // buy conditions
+          (currentPrice < alwaysBuyBelow ||
+            (md != 4 &&
+              ((currentPrice > lastPrice &&
+                stockList.Goods[i].riseCount >= deltaPrice) ||
+                ((md == 1 || md == 3) && md != lmd) ||
+                (md == 0 &&
+                  !stockList.Goods[i].someSold &&
+                  stockList.Goods[i].dropCount < deltaPrice &&
+                  currentPrice >= 10)) &&
+              (currentPrice < ceilingPrice || md == 1 || md == 3))) &&
+          stockList.canBuy &&
+          (CookiStocker.Bank.getGoodMaxStock(market[i]) - market[i].stock) *
+            Game.cookiesPsRawHighest *
+            market[i].val <
+            Game.cookies * stockerCookiesThreshold &&
+          CookiStocker.Bank.brokers >= stockerMinBrokers &&
+          CookiStocker.Bank.buyGood(i, 10000) // actual buy attempt
+        ) {
+          // buying
+          let mode =
+            lmd != md ? "is no longer in " + modeDecoder[lmd] + " mode" : "is ";
+          let units = market[i].stock - lastStock;
+
+          stockList.Goods[i].someBought = true;
+          stockList.Goods[i].stock = market[i].stock;
+          if (typeof market[i].prevBuyMode1 !== "undefined") {
+            market[i].prevBuyMode1 = lmd;
+            market[i].prevBuyMode2 = md;
+          }
+          market[i].buyTime = Date.now();
+          if (typeof StockAssistant !== "undefined") {
+            StockAssistant.stockData.goods[i].boughtVal = market[i].prev;
+            StockAssistant.buyGood(i);
+          }
+          stockList.Purchases++;
+          if (stockerTransactionNotifications)
+            if (currentPrice >= 2)
+              Game.Notify(
+                `Buying ${stockName} ${new Date().toLocaleTimeString([], { hourCycle: "h23", hour: "2-digit", minute: "2-digit" })}`,
+                `Buying ${units} unit${units > 1 ? "s" : ""}. The stock ${mode} at $${Beautify(market[i].prev, 2)} per unit (your buying price) and is in ${modeDecoder[md]} mode now.`,
+                goodIcons[i],
+                stockerNotificationTime,
+              );
+            else
+              Game.Notify(
+                `Buying ${stockName} ${new Date().toLocaleTimeString([], { hourCycle: "h23", hour: "2-digit", minute: "2-digit" })}`,
+                `Buying ${units} unit${units > 1 ? "s" : ""}. The price has dropped below $2 per unit, and your buying price is $${Beautify(market[i].prev, 2)}.`,
+                goodIcons[i],
+                stockerNotificationTime,
+              );
+          if (stockerConsoleAnnouncements)
+            console.log(
+              "=====$$$=== Buying " +
+                stockName +
+                " at $" +
+                Beautify(market[i].prev, 2),
+            );
+        } else if (
+          // sell conditions
+          stockList.Goods[i].stock > 0 &&
+          ((currentPrice < lastPrice &&
+            stockList.Goods[i].dropCount >= deltaPrice) ||
+            ((md == 2 || md == 4) && md != lmd)) &&
+          currentPrice >= neverSellBelow // not near the bottom
+        ) {
+          let profit = 0;
+          let strProfit = "profit ";
+          let mode =
+            lmd != md
+              ? "is no longer in " + modeDecoder[lmd] + " mode and "
+              : "";
+
+          if (!CookiStocker.Bank.sellGood(i, stockList.Goods[i].stock)) {
+            stockList.Goods[i].lastMode = stockList.Goods[i].mode;
+            continue;
+          }
+          stockList.Goods[i].someSold = true;
+          market[i].prevSale = market[i].val;
+          market[i].prevSellMode1 = lmd;
+          market[i].prevSellMode2 = md;
+          market[i].sellTime = Date.now();
+          if (typeof StockAssistant !== "undefined") StockAssistant.sellGood(i);
+          stockList.Sales++;
+          profit = (market[i].val - market[i].prev) * stockList.Goods[i].stock;
+          stockList.Goods[i].profit += profit;
+          if (profit > 0) {
+            stockList.grossProfits += profit;
+            stockList.profitableTrades++;
+          } else {
+            stockList.grossLosses += -profit;
+            stockList.unprofitableTrades++;
+          }
+          stockList.netProfits += profit;
+          stockerModeProfits[lmd][md][0] += profit;
+          stockerModeProfits[lmd][md][1] += profit;
+          stockerModeProfits[lmd][md][2]++;
+          if (profit < 0) {
+            strProfit = "loss ";
+            profit = -profit;
+          }
+          if (stockerTransactionNotifications)
+            Game.Notify(
+              `Selling ${stockName} ${new Date().toLocaleTimeString([], { hourCycle: "h23", hour: "2-digit", minute: "2-digit" })}`,
+              `Selling ${stockList.Goods[i].stock} unit${stockList.Goods[i].stock > 1 ? "s" : ""} at a price of $${Beautify(market[i].val, 2)} per unit for a ${strProfit} of $${Beautify(profit, 2)} and total revenue of $${Beautify(market[i].val * stockList.Goods[i].stock, 2)}, which is added to the total market profits. The stock ${mode} is in ${modeDecoder[md]} mode now. Bought at a price of $${Beautify(market[i].prev, 2)} per unit.`,
+              goodIcons[i],
+              stockerNotificationTime,
+            );
+          if (stockerConsoleAnnouncements)
+            console.log(
+              `=====$$$=== Selling ${stockName} at $${Beautify(market[i].val, 2)} for a ${strProfit}of $${Beautify(profit, 2)} and total revenue of $${Beautify(market[i].val * stockList.Goods[i].stock, 2)}. Last bought at $${Beautify(market[i].prev, 2)}.`,
+            );
+        }
+        stockList.Profits =
+          CookiStocker.Bank.profit - stockList.startingProfits;
+        stockList.Goods[i].lastMode = stockList.Goods[i].mode;
+      }
+      stockList.profitableStocks = stockList.unprofitableStocks = 0;
+      for (let i = 0; i < market.length; i++) {
+        // Must recalculate the whole list on every pass
+        if (stockList.Goods[i].profit > 0) stockList.profitableStocks++;
+        else if (stockList.Goods[i].profit < 0) stockList.unprofitableStocks++;
+      }
+      CookiStocker.TradingStats();
+      if (!stockerMarketOn) {
+        if (CookiStocker.reportTimer) {
+          clearInterval(CookiStocker.reportTimer);
+          CookiStocker.reportTimer = null;
+        }
+        CookiStocker.Reports(); // one last summary
+        stockList.noModActions = true; // freeze until ON
+        return;
+      }
+    }, stockerLoopFrequency);
+  },
+});
+
