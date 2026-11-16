@@ -1,5 +1,20 @@
 // 			Options
 
+// Suppress CCSE's own internal errors (vn, getTimeMod, shimmer injection, etc.)
+// so they don't flood the console or cascade into CookiStocker's tick loop.
+window.onerror = function (msg, url, line, col, error) {
+  if (
+    msg.includes("vn is not defined") ||
+    msg.includes("getTimeMod") ||
+    msg.includes("shimmerTypes") ||
+    msg.includes("UpdateSpecial")
+  ) {
+    console.error("[CookiStocker] CCSE internal error (suppressed):", msg);
+    return true;
+  }
+  return false;
+};
+
 // Automatic trading when true
 var stockerAutoTrading = true;
 
@@ -547,6 +562,32 @@ Game.registerMod("CookiStocker", {
       ) {
         try {
           CookiStocker.ReplaceGameMenu();
+
+          // CCSE also patches getGoodMaxStock and its eval'd code references
+          // an `oldGet` that doesn't exist in its scope. Re-wrap the function
+          // so CCSE's broken patch can't crash the game's draw loop.
+          try {
+            var M2 = Game.Objects["Bank"].minigame;
+            if (M2 && typeof M2.getGoodMaxStock === "function") {
+              var _origGet2 = M2.getGoodMaxStock;
+              M2.getGoodMaxStock = function (good) {
+                try {
+                  return _origGet2.call(this, good);
+                } catch (e) {
+                  console.error(
+                    "[CookiStocker] getGoodMaxStock (CCSE) failed:",
+                    e,
+                  );
+                  return 0;
+                }
+              };
+            }
+          } catch (e) {
+            console.error(
+              "[CookiStocker] getGoodMaxStock re-wrap failed:",
+              e,
+            );
+          }
         } catch (e) {
           console.error(
             "[CookiStocker] ReplaceGameMenu failed:",
@@ -652,48 +693,57 @@ Game.registerMod("CookiStocker", {
         /* the override above */
       })();
     if (!CookiStocker.patchedMaxStock) {
-      var M = Game.Objects["Bank"].minigame;
-      var oldGet = M.getGoodMaxStock;
-      M.getGoodMaxStock = function (good) {
-        var base = oldGet.call(this, good);
-        if (
-          CookiStocker.Bank.officeLevel < 3 ||
-          stockList.Profits < CS_PLASMIC_PROFITS
-        )
-          return base;
-
-        var mult = 1;
-
-        if (!stockList.shadowGone && stockList.Profits >= CS_GASEOUS_PROFITS) {
+      try {
+        var M = Game.Objects["Bank"].minigame;
+        var oldGet = M.getGoodMaxStock;
+        M.getGoodMaxStock = function (good) {
+          try {
+            var base = oldGet.call(this, good);
+          } catch (e) {
+            console.error("[CookiStocker] getGoodMaxStock base failed:", e);
+            var base = 0;
+          }
           if (
-            Game.Achievements["Gaseous assets"] &&
-            Game.Achievements["Gaseous assets"].won
-          ) {
-            Game.Achievements["Gaseous assets"].pool = "";
-            stockList.shadowGone = true;
-          } else return;
-        }
-        if (Game.Objects["Bank"].level >= 12) {
-          if (stockerExponential && stockList.origCookiesPsRawHighest)
-            mult *=
-              Game.cookiesPsRawHighest **
-              (stockerExponentialPower / stockList.origCookiesPsRawHighest);
-          if (
-            Game.Achievements["Plasmic assets"] &&
-            Game.Achievements["Plasmic assets"].won &&
-            stockList.Profits >= CS_PLASMIC_PROFITS * mult
+            CookiStocker.Bank.officeLevel < 3 ||
+            stockList.Profits < CS_PLASMIC_PROFITS
           )
-            mult *= 2;
-          if (
-            Game.Achievements["Bose-Einstein Condensed Assets"] &&
-            Game.Achievements["Bose-Einstein Condensed Assets"].won &&
-            stockList.Profits >= CS_BOSE_EINSTEIN_PROFITS * mult
-          )
-            mult *= 2;
-        }
-        return Math.ceil(base * mult);
-      };
-      CookiStocker.patchedMaxStock = true;
+            return base;
+
+          var mult = 1;
+
+          if (!stockList.shadowGone && stockList.Profits >= CS_GASEOUS_PROFITS) {
+            if (
+              Game.Achievements["Gaseous assets"] &&
+              Game.Achievements["Gaseous assets"].won
+            ) {
+              Game.Achievements["Gaseous assets"].pool = "";
+              stockList.shadowGone = true;
+            } else return;
+          }
+          if (Game.Objects["Bank"].level >= 12) {
+            if (stockerExponential && stockList.origCookiesPsRawHighest)
+              mult *=
+                Game.cookiesPsRawHighest **
+                (stockerExponentialPower / stockList.origCookiesPsRawHighest);
+            if (
+              Game.Achievements["Plasmic assets"] &&
+              Game.Achievements["Plasmic assets"].won &&
+              stockList.Profits >= CS_PLASMIC_PROFITS * mult
+            )
+              mult *= 2;
+            if (
+              Game.Achievements["Bose-Einstein Condensed Assets"] &&
+              Game.Achievements["Bose-Einstein Condensed Assets"].won &&
+              stockList.Profits >= CS_BOSE_EINSTEIN_PROFITS * mult
+            )
+              mult *= 2;
+          }
+          return Math.ceil(base * mult);
+        };
+        CookiStocker.patchedMaxStock = true;
+      } catch (e) {
+        console.error("[CookiStocker] max stock patch failed:", e);
+      }
     }
     CookiStocker.installBankTickHook();
 
